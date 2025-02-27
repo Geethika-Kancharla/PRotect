@@ -5,5 +5,11 @@
   ],
   "routes": [
     { "src": "/api/github/webhooks", "dest": "/api/github/webhooks" }
-  ]
+  ],
+  "functions": {
+    "api/github/webhooks/index.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  }
 } 
