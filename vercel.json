@@ -4,7 +4,16 @@
     { "src": "api/**/*.js", "use": "@vercel/node" }
   ],
   "routes": [
-    { "src": "/api/github/webhooks", "dest": "/api/github/webhooks" }
+    { 
+      "src": "/api/github/webhooks",
+      "dest": "/api/github/webhooks",
+      "methods": ["POST"],
+      "headers": {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST",
+        "Access-Control-Allow-Headers": "X-GitHub-Event, X-GitHub-Delivery, X-Hub-Signature, X-Hub-Signature-256, Content-Type"
+      }
+    }
   ],
   "functions": {
     "api/github/webhooks/index.js": {

@@ -1,9 +1,6 @@
 import { createNodeMiddleware, createProbot } from "probot";
-import { Webhooks } from "@octokit/webhooks";
-
-const webhooks = new Webhooks({
-  secret: process.env.WEBHOOK_SECRET
-});
+import { Webhooks, createNodeMiddleware as createWebhooksMiddleware } from "@octokit/webhooks";
+import { Buffer } from "buffer";
 
 // Create probot instance
 const probot = createProbot({
@@ -14,7 +11,6 @@ const probot = createProbot({
 
 const app = (probot) => {
   probot.log.info("✅ Probot app is running!");
-  probot.log.info(`Webhook secret length: ${process.env.WEBHOOK_SECRET?.length}`);
 
   // Listen for PR events
   probot.on("pull_request.opened", async (context) => {
@@ -54,38 +50,72 @@ const app = (probot) => {
       }
     }
   });
-
-  // Add error handling
-  probot.on("error", (error) => {
-    probot.log.error("❌ Webhook error occurred:", error);
-  });
 };
 
-const middleware = createNodeMiddleware(app, { probot });
+// Create webhooks instance for signature verification
+const webhooks = new Webhooks({
+  secret: process.env.WEBHOOK_SECRET
+});
 
-// Export a function that wraps the middleware with additional error handling
 export default async function handler(req, res) {
-  try {
-    // Log headers for debugging
-    console.log("Received headers:", {
-      "x-hub-signature": req.headers["x-hub-signature"],
-      "x-hub-signature-256": req.headers["x-hub-signature-256"],
-      "x-github-event": req.headers["x-github-event"]
-    });
+  // Log request details for debugging
+  console.log("Request method:", req.method);
+  console.log("Request headers:", req.headers);
+  
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
-    // Verify webhook signature manually first
-    try {
-      await webhooks.verify(req.body, req.headers["x-hub-signature-256"]);
-      console.log("✅ Webhook signature verified successfully");
-    } catch (error) {
-      console.error("❌ Webhook verification failed:", error);
-      return res.status(400).json({ error: "Invalid webhook signature" });
+  // Get the signature from headers
+  const signature = req.headers["x-hub-signature-256"];
+  const event = req.headers["x-github-event"];
+
+  if (!signature) {
+    console.error("No signature found in headers");
+    return res.status(400).json({ error: "No signature" });
+  }
+
+  try {
+    // Get raw body as buffer
+    const rawBody = await getRawBody(req);
+    
+    // Verify the webhook signature
+    const verified = await webhooks.verify(rawBody, signature);
+    if (!verified) {
+      console.error("Webhook signature verification failed");
+      return res.status(400).json({ error: "Invalid signature" });
     }
 
-    // If verification passed, process the webhook
-    return middleware(req, res);
+    console.log("✅ Webhook signature verified successfully");
+    
+    // Parse the body
+    const payload = JSON.parse(rawBody.toString());
+    
+    // Create a new request object with the verified payload
+    const verifiedReq = {
+      ...req,
+      body: payload
+    };
+
+    // Process the webhook with Probot middleware
+    return createNodeMiddleware(app, { probot })(verifiedReq, res);
   } catch (error) {
-    console.error("❌ Error processing webhook:", error);
+    console.error("Error processing webhook:", error);
     return res.status(500).json({ error: error.message });
   }
+}
+
+// Helper function to get raw body
+async function getRawBody(req) {
+  return new Promise((resolve, reject) => {
+    if (req.body) {
+      // If body is already parsed, convert it back to string
+      return resolve(Buffer.from(JSON.stringify(req.body)));
+    }
+
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
 } 
