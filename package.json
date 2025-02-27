@@ -13,7 +13,8 @@
   ],
   "scripts": {
     "start": "probot run ./index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "dev": "smee-client --url https://smee.io/new --path /api/github/webhooks --port 8000"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
