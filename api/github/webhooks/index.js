@@ -1,7 +1,6 @@
 import { createNodeMiddleware, createProbot } from "probot";
 import crypto from "crypto";
 
-// Create Probot instance with required configuration
 const probot = createProbot({
   appId: process.env.APP_ID,
   privateKey: process.env.PRIVATE_KEY,
@@ -40,19 +39,19 @@ const app = (probot) => {
   });
 };
 
-// Verify webhook signature with SHA-256 first, fallback to SHA-1
 function verifySignature(payload, headers, secret) {
-  const sha256Signature = headers["x-hub-signature-256"];
-  const sha1Signature = headers["x-hub-signature"];
+  const sha256Signature = headers["x-hub-signature-256"] || headers["X-Hub-Signature-256"];
+  const sha1Signature = headers["x-hub-signature"] || headers["X-Hub-Signature"];
 
   const checkSignature = (algorithm, signature) => {
     if (!signature) return false;
     const hash = crypto.createHmac(algorithm, secret).update(payload).digest("hex");
-    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(`${algorithm}=${hash}`));
+    return crypto.timingSafeEqual(Buffer.from(signature.split("=")[1]), Buffer.from(hash));
   };
 
   return checkSignature("sha256", sha256Signature) || checkSignature("sha1", sha1Signature);
 }
+
 
 export default async function handler(req, res) {
   console.log("Received webhook request");
@@ -61,8 +60,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const rawBody = JSON.stringify(req.body); // Use JSON body directly
-
+  const rawBody = req.body ? JSON.stringify(req.body) : "";
+  
   console.log("Raw body length:", rawBody.length);
 
   if (!verifySignature(rawBody, req.headers, process.env.WEBHOOK_SECRET)) {
