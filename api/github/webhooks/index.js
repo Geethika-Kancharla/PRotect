@@ -81,17 +81,32 @@ export default async function handler(req, res) {
     // Parse the webhook payload
     const payload = JSON.parse(rawBody);
 
-    // Create a new request object with the verified payload
+    // Create a new request object with the verified payload and proper headers
     const webhookRequest = {
       ...req,
-      body: payload
+      body: payload,
+      headers: {
+        ...req.headers,
+        'content-type': 'application/json',
+        'content-length': rawBody.length.toString(),
+        'x-github-event': req.headers['x-github-event'],
+        'x-github-delivery': req.headers['x-github-delivery'],
+        'x-hub-signature': req.headers['x-hub-signature'],
+        'x-hub-signature-256': req.headers['x-hub-signature-256']
+      }
     };
 
-    // Process with Probot
-    await createNodeMiddleware(app, {
+    console.log('Processing webhook with headers:', webhookRequest.headers);
+    console.log('Event type:', webhookRequest.headers['x-github-event']);
+
+    // Initialize Probot middleware
+    const middleware = createNodeMiddleware(app, {
       probot,
       webhooksPath: "/api/github/webhooks"
-    })(webhookRequest, res);
+    });
+
+    // Process with Probot
+    await middleware(webhookRequest, res);
   } catch (error) {
     console.error("Error processing webhook:", error);
     res.status(500).json({ error: error.message });
