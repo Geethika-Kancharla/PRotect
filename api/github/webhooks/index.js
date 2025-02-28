@@ -1,4 +1,5 @@
 import { createNodeMiddleware, createProbot } from "probot";
+import crypto from 'crypto';
 
 // Initialize probot with required config
 const probot = createProbot({
@@ -49,30 +50,68 @@ const app = (probot) => {
   });
 };
 
-// Create middleware handler for Vercel
-const handler = createNodeMiddleware(app, {
-  probot,
-  webhooksPath: "/api/github/webhooks"
-});
+// Verify GitHub webhook signature
+function verifyWebhook(req, rawBody) {
+  const signature = req.headers['x-hub-signature-256'];
+  if (!signature) {
+    throw new Error('No X-Hub-Signature-256 found on request');
+  }
+
+  const secret = process.env.WEBHOOK_SECRET;
+  const hmac = crypto.createHmac('sha256', secret);
+  const digest = 'sha256=' + hmac.update(rawBody).digest('hex');
+  const checksum = Buffer.from(signature);
+  const digestBuffer = Buffer.from(digest);
+
+  if (checksum.length !== digestBuffer.length || !crypto.timingSafeEqual(digestBuffer, checksum)) {
+    throw new Error('Request body digest did not match x-hub-signature-256');
+  }
+}
 
 // Export a function that handles the request
 export default async function(req, res) {
   console.log("Received webhook request");
   console.log("Method:", req.method);
-  console.log("Headers:", req.headers);
+  console.log("Event Type:", req.headers['x-github-event']);
+  console.log("Delivery ID:", req.headers['x-github-delivery']);
 
   if (req.method === "GET") {
-    return res.status(200).json({ message: "Probot GitHub App is running!" });
+    return res.status(200).json({ 
+      message: "Probot GitHub App is running!",
+      time: new Date().toISOString()
+    });
   }
 
+  // Get the raw body for verification
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+  const rawBody = Buffer.concat(chunks);
+
   try {
-    await handler(req, res);
-    console.log("Webhook handled successfully");
+    // Verify webhook signature
+    verifyWebhook(req, rawBody);
+    console.log("✅ Webhook signature verified");
+
+    // Parse the body
+    req.body = JSON.parse(rawBody);
+
+    // Handle the webhook
+    await createNodeMiddleware(app, {
+      probot,
+      webhooksPath: "/api/github/webhooks"
+    })(req, res);
+
+    console.log("✅ Webhook handled successfully");
   } catch (error) {
-    console.error("Error handling webhook:", error);
-    // Only send error response if one hasn't been sent already
+    console.error("❌ Error processing webhook:", error);
     if (!res.headersSent) {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ 
+        error: error.message,
+        type: error.name,
+        event: req.headers['x-github-event']
+      });
     }
   }
 }
