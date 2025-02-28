@@ -1,136 +1,50 @@
-import crypto from 'crypto';
+const express = require("express");
+const crypto = require("crypto");
 
-// Verify environment variables are present
-function checkEnvironment() {
-  const required = {
-    'WEBHOOK_SECRET': process.env.WEBHOOK_SECRET
-  };
+const app = express();
+const PORT = process.env.PORT || 3000;
+const SECRET = process.env.WEBHOOK_SECRET || "your-secret";
 
-  const missing = Object.entries(required)
-    .filter(([_, value]) => !value)
-    .map(([key]) => key);
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 
-  if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
-  }
+// Function to verify GitHub signature
+function verifySignature(req) {
+  const signature = req.headers["x-hub-signature-256"];
+  if (!signature) return false;
+
+  const hmac = crypto.createHmac("sha256", SECRET);
+  hmac.update(req.rawBody);
+  const expectedSignature = `sha256=${hmac.digest("hex")}`;
+
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
 }
 
-// Verify GitHub webhook signature
-function verifyWebhook(req, rawBody) {
-  const signature = req.headers['x-hub-signature-256'];
-  if (!signature) {
-    throw new Error('No X-Hub-Signature-256 found on request');
+app.post("/webhook", (req, res) => {
+  if (!verifySignature(req)) {
+    console.error("Signature verification failed!");
+    return res.status(401).send("Invalid signature");
   }
 
-  const secret = process.env.WEBHOOK_SECRET;
-  const hmac = crypto.createHmac('sha256', secret);
-  const digest = 'sha256=' + hmac.update(rawBody).digest('hex');
-  
-  console.log('Received signature:', signature);
-  console.log('Calculated digest:', digest);
+  const event = req.headers["x-github-event"];
+  console.log(`Received GitHub event: ${event}`);
 
-  const checksum = Buffer.from(signature);
-  const digestBuffer = Buffer.from(digest);
+  if (event === "pull_request") {
+    const action = req.body.action;
+    console.log(`Pull request ${action}: #${req.body.pull_request.number}`);
 
-  if (checksum.length !== digestBuffer.length || !crypto.timingSafeEqual(digestBuffer, checksum)) {
-    throw new Error('Request body digest did not match x-hub-signature-256');
-  }
-}
-
-// Handle different webhook events
-async function handleWebhookEvent(event, payload) {
-  console.log(`Handling ${event} event`);
-
-  switch (event) {
-    case 'pull_request':
-      if (payload.action === 'opened' || payload.action === 'reopened') {
-        console.log(`PR #${payload.pull_request.number} ${payload.action}`);
-        // Here you would add your PR handling logic
-        return {
-          status: 200,
-          message: `Processed PR #${payload.pull_request.number}`
-        };
-      }
-      break;
-
-    case 'issues':
-      if (payload.action === 'opened' || payload.action === 'reopened') {
-        console.log(`Issue #${payload.issue.number} ${payload.action}`);
-        // Here you would add your issue handling logic
-        return {
-          status: 200,
-          message: `Processed Issue #${payload.issue.number}`
-        };
-      }
-      break;
-
-    default:
-      console.log(`Unhandled event type: ${event}`);
-      return {
-        status: 200,
-        message: `Received ${event} event`
-      };
-  }
-}
-
-// Export the webhook handler
-export default async function(req, res) {
-  try {
-    // Check environment variables first
-    checkEnvironment();
-
-    console.log("Received webhook request");
-    console.log("Method:", req.method);
-    console.log("Event Type:", req.headers['x-github-event']);
-    console.log("Delivery ID:", req.headers['x-github-delivery']);
-
-    // Handle GET requests (health check)
-    if (req.method === "GET") {
-      return res.status(200).json({ 
-        message: "GitHub Webhook handler is running!",
-        time: new Date().toISOString()
-      });
-    }
-
-    // Only accept POST requests for webhooks
-    if (req.method !== "POST") {
-      return res.status(405).json({ error: "Method not allowed" });
-    }
-
-    // Get the raw body
-    const chunks = [];
-    for await (const chunk of req) {
-      chunks.push(chunk);
-    }
-    const rawBody = Buffer.concat(chunks);
-
-    // Verify webhook signature
-    try {
-      verifyWebhook(req, rawBody);
-      console.log("✅ Webhook signature verified");
-    } catch (error) {
-      console.error("❌ Webhook verification failed:", error.message);
-      return res.status(401).json({ error: error.message });
-    }
-
-    // Parse the body
-    const payload = JSON.parse(rawBody);
-    const event = req.headers['x-github-event'];
-
-    // Handle the webhook event
-    const result = await handleWebhookEvent(event, payload);
-    return res.status(result.status).json(result);
-
-  } catch (error) {
-    console.error("❌ Error processing webhook:", error);
-    
-    if (!res.headersSent) {
-      res.status(500).json({ 
-        error: error.message,
-        type: error.name,
-        event: req.headers['x-github-event']
-      });
+    // You can trigger any action based on PR events (opened, closed, merged, etc.)
+    if (action === "opened") {
+      console.log("New PR opened!");
+      // Add custom logic here
+    } else if (action === "closed" && req.body.pull_request.merged) {
+      console.log("PR merged!");
+      // Run deployment script or any other action
     }
   }
-}
 
+  res.status(200).send("Event received");
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
