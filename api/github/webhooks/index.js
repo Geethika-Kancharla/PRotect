@@ -9,8 +9,7 @@ app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 
 // Function to verify GitHub signature
 function verifySignature(req) {
-  const signature = req.headers["x-hub-signature-256"] || req.headers["x-hub-signature"];
-
+  const signature = req.headers["x-hub-signature-256"];
   if (!signature) return false;
 
   const hmac = crypto.createHmac("sha256", SECRET);
@@ -21,9 +20,6 @@ function verifySignature(req) {
 }
 
 app.post("/webhook", (req, res) => {
-  console.log("Headers:", req.headers);
-  console.log("Body:", JSON.stringify(req.body, null, 2));
-
   if (!verifySignature(req)) {
     console.error("Signature verification failed!");
     return res.status(401).send("Invalid signature");
@@ -33,14 +29,21 @@ app.post("/webhook", (req, res) => {
   console.log(`Received GitHub event: ${event}`);
 
   if (event === "pull_request") {
-    console.log(`PR Action: ${req.body.action}`);
-    console.log(`PR Title: ${req.body.pull_request.title}`);
-    console.log(`PR Number: ${req.body.pull_request.number}`);
+    const action = req.body.action;
+    console.log(`Pull request ${action}: #${req.body.pull_request.number}`);
+
+    // You can trigger any action based on PR events (opened, closed, merged, etc.)
+    if (action === "opened") {
+      console.log("New PR opened!");
+      // Add custom logic here
+    } else if (action === "closed" && req.body.pull_request.merged) {
+      console.log("PR merged!");
+      // Run deployment script or any other action
+    }
   }
 
   res.status(200).send("Event received");
 });
-
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
