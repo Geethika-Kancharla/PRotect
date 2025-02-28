@@ -1,7 +1,13 @@
 import { createNodeMiddleware, createProbot } from "probot";
 import crypto from "crypto";
+import { IncomingMessage, ServerResponse } from "http";
 
-const probot = createProbot();
+// Initialize probot with required config
+const probot = createProbot({
+  appId: process.env.APP_ID,
+  privateKey: process.env.PRIVATE_KEY,
+  secret: process.env.WEBHOOK_SECRET
+});
 
 const app = (probot) => {
   probot.log.info("✅ Probot app is running!");
@@ -55,6 +61,9 @@ function verifyGitHubWebhook(req, rawBody) {
 }
 
 export default async function handler(req, res) {
+  console.log("Received webhook request");
+  console.log("Original headers:", req.headers);
+
   try {
     // Only accept POST requests
     if (req.method !== "POST") {
@@ -81,34 +90,46 @@ export default async function handler(req, res) {
     // Parse the webhook payload
     const payload = JSON.parse(rawBody);
 
-    // Create a new request object with the verified payload and proper headers
-    const webhookRequest = {
-      ...req,
-      body: payload,
+    // Create a complete request object that mimics an HTTP request
+    const webhookRequest = Object.assign(new IncomingMessage(null), {
       headers: {
-        ...req.headers,
         'content-type': 'application/json',
         'content-length': rawBody.length.toString(),
-        'x-github-event': req.headers['x-github-event'],
-        'x-github-delivery': req.headers['x-github-delivery'],
-        'x-hub-signature': req.headers['x-hub-signature'],
-        'x-hub-signature-256': req.headers['x-hub-signature-256']
-      }
-    };
+        'x-github-event': req.headers['x-github-event'] || '',
+        'x-github-delivery': req.headers['x-github-delivery'] || '',
+        'x-hub-signature': req.headers['x-hub-signature'] || '',
+        'x-hub-signature-256': req.headers['x-hub-signature-256'] || ''
+      },
+      method: 'POST',
+      url: '/api/github/webhooks',
+      body: payload
+    });
 
-    console.log('Processing webhook with headers:', webhookRequest.headers);
+    console.log('Webhook request headers:', webhookRequest.headers);
     console.log('Event type:', webhookRequest.headers['x-github-event']);
 
-    // Initialize Probot middleware
-    const middleware = createNodeMiddleware(app, {
-      probot,
-      webhooksPath: "/api/github/webhooks"
+    // Create a proper response object
+    const webhookResponse = Object.assign(new ServerResponse(webhookRequest), {
+      status: res.status.bind(res),
+      send: res.send.bind(res),
+      json: res.json.bind(res),
+      setHeader: res.setHeader.bind(res)
     });
 
     // Process with Probot
-    await middleware(webhookRequest, res);
+    await createNodeMiddleware(app, {
+      probot,
+      webhooksPath: "/api/github/webhooks"
+    })(webhookRequest, webhookResponse);
+
+    // Forward the response
+    if (!res.headersSent) {
+      res.status(webhookResponse.statusCode).end();
+    }
   } catch (error) {
     console.error("Error processing webhook:", error);
-    res.status(500).json({ error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    }
   }
 }
