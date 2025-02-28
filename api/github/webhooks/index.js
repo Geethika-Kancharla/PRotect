@@ -1,12 +1,9 @@
-import { createNodeMiddleware, createProbot } from "probot";
 import crypto from 'crypto';
 
 // Verify environment variables are present
 function checkEnvironment() {
   const required = {
-    'APP_ID': process.env.APP_ID,
-    'WEBHOOK_SECRET': process.env.WEBHOOK_SECRET,
-    'PRIVATE_KEY': process.env.PRIVATE_KEY
+    'WEBHOOK_SECRET': process.env.WEBHOOK_SECRET
   };
 
   const missing = Object.entries(required)
@@ -17,55 +14,6 @@ function checkEnvironment() {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
 }
-
-// Initialize probot with required config
-const probot = createProbot({
-  appId: process.env.APP_ID,
-  privateKey: process.env.PRIVATE_KEY,
-  secret: process.env.WEBHOOK_SECRET,
-});
-
-const app = (probot) => {
-  probot.log.info("Hello World GitHub App started!");
-
-  probot.on(["pull_request.opened", "pull_request.reopened"], async (context) => {
-    try {
-      probot.log.info("Pull request received!");
-      probot.log.info(`Repository: ${context.payload.repository.full_name}`);
-      probot.log.info(`PR #${context.payload.pull_request.number}`);
-      
-      const params = context.issue({
-        body: "Hello World! I am a GitHub App 🤖",
-      });
-
-      const response = await context.octokit.issues.createComment(params);
-      probot.log.info("Successfully commented on PR!");
-      return response;
-    } catch (error) {
-      probot.log.error("Error handling pull request:", error);
-      throw error;
-    }
-  });
-
-  probot.on(["issues.opened", "issues.reopened"], async (context) => {
-    try {
-      probot.log.info("Issue received!");
-      probot.log.info(`Repository: ${context.payload.repository.full_name}`);
-      probot.log.info(`Issue #${context.payload.issue.number}`);
-      
-      const params = context.issue({
-        body: "Hello World! I am a GitHub App 🤖",
-      });
-
-      const response = await context.octokit.issues.createComment(params);
-      probot.log.info("Successfully commented on issue!");
-      return response;
-    } catch (error) {
-      probot.log.error("Error handling issue:", error);
-      throw error;
-    }
-  });
-};
 
 // Verify GitHub webhook signature
 function verifyWebhook(req, rawBody) {
@@ -89,7 +37,43 @@ function verifyWebhook(req, rawBody) {
   }
 }
 
-// Export a function that handles the request
+// Handle different webhook events
+async function handleWebhookEvent(event, payload) {
+  console.log(`Handling ${event} event`);
+
+  switch (event) {
+    case 'pull_request':
+      if (payload.action === 'opened' || payload.action === 'reopened') {
+        console.log(`PR #${payload.pull_request.number} ${payload.action}`);
+        // Here you would add your PR handling logic
+        return {
+          status: 200,
+          message: `Processed PR #${payload.pull_request.number}`
+        };
+      }
+      break;
+
+    case 'issues':
+      if (payload.action === 'opened' || payload.action === 'reopened') {
+        console.log(`Issue #${payload.issue.number} ${payload.action}`);
+        // Here you would add your issue handling logic
+        return {
+          status: 200,
+          message: `Processed Issue #${payload.issue.number}`
+        };
+      }
+      break;
+
+    default:
+      console.log(`Unhandled event type: ${event}`);
+      return {
+        status: 200,
+        message: `Received ${event} event`
+      };
+  }
+}
+
+// Export the webhook handler
 export default async function(req, res) {
   try {
     // Check environment variables first
@@ -99,22 +83,21 @@ export default async function(req, res) {
     console.log("Method:", req.method);
     console.log("Event Type:", req.headers['x-github-event']);
     console.log("Delivery ID:", req.headers['x-github-delivery']);
-    console.log("Content Type:", req.headers['content-type']);
 
     // Handle GET requests (health check)
     if (req.method === "GET") {
       return res.status(200).json({ 
-        message: "Probot GitHub App is running!",
-        time: new Date().toISOString(),
-        environment: {
-          appId: process.env.APP_ID,
-          webhookSecretPresent: !!process.env.WEBHOOK_SECRET,
-          privateKeyPresent: !!process.env.PRIVATE_KEY
-        }
+        message: "GitHub Webhook handler is running!",
+        time: new Date().toISOString()
       });
     }
 
-    // Get the raw body for verification
+    // Only accept POST requests for webhooks
+    if (req.method !== "POST") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
+
+    // Get the raw body
     const chunks = [];
     for await (const chunk of req) {
       chunks.push(chunk);
@@ -131,35 +114,18 @@ export default async function(req, res) {
     }
 
     // Parse the body
-    const parsedBody = JSON.parse(rawBody);
-    console.log("Event payload type:", parsedBody.action || "unknown");
+    const payload = JSON.parse(rawBody);
+    const event = req.headers['x-github-event'];
 
-    // Create webhook request object
-    const webhookRequest = {
-      ...req,
-      body: parsedBody,
-      headers: {
-        ...req.headers,
-        'content-type': 'application/json'
-      }
-    };
+    // Handle the webhook event
+    const result = await handleWebhookEvent(event, payload);
+    return res.status(result.status).json(result);
 
-    // Process with Probot
-    await createNodeMiddleware(app, {
-      probot,
-      webhooksPath: "/api/github/webhooks"
-    })(webhookRequest, res);
-
-    console.log("✅ Webhook handled successfully");
   } catch (error) {
     console.error("❌ Error processing webhook:", error);
-    console.log("Environment status:");
-    console.log("- Webhook Secret:", process.env.WEBHOOK_SECRET ? "Present" : "Missing");
-    console.log("- App ID:", process.env.APP_ID);
-    console.log("- Private Key:", process.env.PRIVATE_KEY ? "Present" : "Missing");
     
     if (!res.headersSent) {
-      res.status(error.status || 500).json({ 
+      res.status(500).json({ 
         error: error.message,
         type: error.name,
         event: req.headers['x-github-event']
@@ -167,3 +133,4 @@ export default async function(req, res) {
     }
   }
 }
+
