@@ -39,42 +39,91 @@ const app = (probot) => {
   });
 };
 
-function verifySignature(payload, headers, secret) {
-  const sha256Signature = headers["x-hub-signature-256"] || headers["X-Hub-Signature-256"];
-  const sha1Signature = headers["x-hub-signature"] || headers["X-Hub-Signature"];
+// Verify webhook signature
+function verifySignature(payload, signature, secret) {
+  if (!signature) {
+    console.error("No signature found");
+    return false;
+  }
 
-  const checkSignature = (algorithm, signature) => {
-    if (!signature) return false;
-    const hash = crypto.createHmac(algorithm, secret).update(payload).digest("hex");
-    return crypto.timingSafeEqual(Buffer.from(signature.split("=")[1]), Buffer.from(hash));
-  };
+  // Handle both SHA-1 and SHA-256 signatures
+  const algorithm = signature.startsWith('sha256=') ? 'sha256' : 'sha1';
+  const hash = crypto.createHmac(algorithm, secret)
+    .update(payload)
+    .digest('hex');
+  const expectedSignature = `${algorithm}=${hash}`;
 
-  return checkSignature("sha256", sha256Signature) || checkSignature("sha1", sha1Signature);
+  console.log('Received signature:', signature);
+  console.log('Expected signature:', expectedSignature);
+  console.log('Algorithm used:', algorithm);
+  console.log('Webhook secret:', secret);
+  console.log('Payload length:', payload.length);
+  console.log('Payload first 100 chars:', payload.substring(0, 100));
+  
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  );
 }
-
 
 export default async function handler(req, res) {
   console.log("Received webhook request");
-
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const rawBody = req.body ? JSON.stringify(req.body) : "";
-  
-  console.log("Raw body length:", rawBody.length);
+  // Get raw body as string
+  const rawBody = await new Promise((resolve) => {
+    let data = '';
+    req.on('data', chunk => {
+      data += chunk;
+    });
+    req.on('end', () => {
+      resolve(data);
+    });
+  });
 
-  if (!verifySignature(rawBody, req.headers, process.env.WEBHOOK_SECRET)) {
-    console.error("❌ Invalid webhook signature");
-    return res.status(401).json({ error: "Invalid signature" });
+  console.log("Raw body length:", rawBody.length);
+  console.log("First 100 chars of body:", rawBody.substring(0, 100));
+
+  // Try both SHA-256 and SHA-1 signatures
+  const sha256Signature = req.headers["x-hub-signature-256"];
+  const sha1Signature = req.headers["x-hub-signature"];
+  
+  const isValidSha256 = sha256Signature && verifySignature(rawBody, sha256Signature, process.env.WEBHOOK_SECRET);
+  const isValidSha1 = sha1Signature && verifySignature(rawBody, sha1Signature, process.env.WEBHOOK_SECRET);
+
+  if (!isValidSha256 && !isValidSha1) {
+    console.error("Invalid webhook signature");
+    console.error("SHA-256 verification result:", isValidSha256);
+    console.error("SHA-1 verification result:", isValidSha1);
+    console.error("Webhook secret used:", process.env.WEBHOOK_SECRET ? "Present" : "Missing");
+    return res.status(401).json({ 
+      error: "Invalid signature",
+      sha256Present: !!sha256Signature,
+      sha1Present: !!sha1Signature
+    });
   }
 
   console.log("✅ Signature verification successful");
 
   try {
-    await createNodeMiddleware(app, { probot, webhooksPath: "/api/github/webhooks" })(req, res);
+    // Parse body and create request object
+    const payload = JSON.parse(rawBody);
+    const webhookRequest = {
+      ...req,
+      body: payload
+    };
+
+    // Process with Probot
+    await createNodeMiddleware(app, {
+      probot,
+      webhooksPath: "/api/github/webhooks"
+    })(webhookRequest, res);
   } catch (error) {
-    console.error("❌ Error processing webhook:", error);
+    console.error("Error processing webhook:", error);
     return res.status(500).json({ error: error.message });
   }
 }
