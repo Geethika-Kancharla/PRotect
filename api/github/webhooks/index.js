@@ -1,6 +1,23 @@
 import { createNodeMiddleware, createProbot } from "probot";
 import crypto from 'crypto';
 
+// Verify environment variables are present
+function checkEnvironment() {
+  const required = {
+    'APP_ID': process.env.APP_ID,
+    'WEBHOOK_SECRET': process.env.WEBHOOK_SECRET,
+    'PRIVATE_KEY': process.env.PRIVATE_KEY
+  };
+
+  const missing = Object.entries(required)
+    .filter(([_, value]) => !value)
+    .map(([key]) => key);
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+
 // Initialize probot with required config
 const probot = createProbot({
   appId: process.env.APP_ID,
@@ -60,6 +77,10 @@ function verifyWebhook(req, rawBody) {
   const secret = process.env.WEBHOOK_SECRET;
   const hmac = crypto.createHmac('sha256', secret);
   const digest = 'sha256=' + hmac.update(rawBody).digest('hex');
+  
+  console.log('Received signature:', signature);
+  console.log('Calculated digest:', digest);
+
   const checksum = Buffer.from(signature);
   const digestBuffer = Buffer.from(digest);
 
@@ -70,42 +91,73 @@ function verifyWebhook(req, rawBody) {
 
 // Export a function that handles the request
 export default async function(req, res) {
-  console.log("Received webhook request");
-  console.log("Method:", req.method);
-  console.log("Event Type:", req.headers['x-github-event']);
-  console.log("Delivery ID:", req.headers['x-github-delivery']);
-
-  if (req.method === "GET") {
-    return res.status(200).json({ 
-      message: "Probot GitHub App is running!",
-      time: new Date().toISOString()
-    });
-  }
-
-  // Get the raw body for verification
-  const chunks = [];
-  for await (const chunk of req) {
-    chunks.push(chunk);
-  }
-  const rawBody = Buffer.concat(chunks);
-
   try {
+    // Check environment variables first
+    checkEnvironment();
+
+    console.log("Received webhook request");
+    console.log("Method:", req.method);
+    console.log("Event Type:", req.headers['x-github-event']);
+    console.log("Delivery ID:", req.headers['x-github-delivery']);
+    console.log("Content Type:", req.headers['content-type']);
+
+    // Handle GET requests (health check)
+    if (req.method === "GET") {
+      return res.status(200).json({ 
+        message: "Probot GitHub App is running!",
+        time: new Date().toISOString(),
+        environment: {
+          appId: process.env.APP_ID,
+          webhookSecretPresent: !!process.env.WEBHOOK_SECRET,
+          privateKeyPresent: !!process.env.PRIVATE_KEY
+        }
+      });
+    }
+
+    // Get the raw body for verification
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const rawBody = Buffer.concat(chunks);
+
     // Verify webhook signature
-    verifyWebhook(req, rawBody);
-    console.log("✅ Webhook signature verified");
+    try {
+      verifyWebhook(req, rawBody);
+      console.log("✅ Webhook signature verified");
+    } catch (error) {
+      console.error("❌ Webhook verification failed:", error.message);
+      return res.status(401).json({ error: error.message });
+    }
 
     // Parse the body
-    req.body = JSON.parse(rawBody);
+    const parsedBody = JSON.parse(rawBody);
+    console.log("Event payload type:", parsedBody.action || "unknown");
 
-    // Handle the webhook
+    // Create webhook request object
+    const webhookRequest = {
+      ...req,
+      body: parsedBody,
+      headers: {
+        ...req.headers,
+        'content-type': 'application/json'
+      }
+    };
+
+    // Process with Probot
     await createNodeMiddleware(app, {
       probot,
       webhooksPath: "/api/github/webhooks"
-    })(req, res);
+    })(webhookRequest, res);
 
     console.log("✅ Webhook handled successfully");
   } catch (error) {
     console.error("❌ Error processing webhook:", error);
+    console.log("Environment status:");
+    console.log("- Webhook Secret:", process.env.WEBHOOK_SECRET ? "Present" : "Missing");
+    console.log("- App ID:", process.env.APP_ID);
+    console.log("- Private Key:", process.env.PRIVATE_KEY ? "Present" : "Missing");
+    
     if (!res.headersSent) {
       res.status(error.status || 500).json({ 
         error: error.message,
