@@ -61,17 +61,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Get raw body
-  const rawBody = await new Promise((resolve, reject) => {
-    let data = "";
-    req.on("data", (chunk) => (data += chunk));
-    req.on("end", () => resolve(data));
-    req.on("error", reject);
-  });
+  const rawBody = JSON.stringify(req.body); // Use JSON body directly
 
   console.log("Raw body length:", rawBody.length);
 
-  // Verify signature
   if (!verifySignature(rawBody, req.headers, process.env.WEBHOOK_SECRET)) {
     console.error("❌ Invalid webhook signature");
     return res.status(401).json({ error: "Invalid signature" });
@@ -80,11 +73,7 @@ export default async function handler(req, res) {
   console.log("✅ Signature verification successful");
 
   try {
-    const payload = JSON.parse(rawBody);
-    await createNodeMiddleware(app, { probot, webhooksPath: "/api/github/webhooks" })({
-      ...req,
-      body: payload,
-    }, res);
+    await createNodeMiddleware(app, { probot, webhooksPath: "/api/github/webhooks" })(req, res);
   } catch (error) {
     console.error("❌ Error processing webhook:", error);
     return res.status(500).json({ error: error.message });
