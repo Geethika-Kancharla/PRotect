@@ -31,12 +31,20 @@ async function getPRFiles(repo, owner, prNumber) {
   }));
 }
 
-// Analyze Security using Semgrep
 async function analyzeSecurity(files) {
   try {
+    if (!SEMGREP_APP_TOKEN) {
+      throw new Error("Missing SEMGREP_APP_TOKEN in environment variables.");
+    }
+
+    console.log("🔍 Sending files to Semgrep for security analysis...");
+
     const response = await axios.post(
       SEMGREP_API_URL,
-      { files },
+      {
+        ruleset: "p/default", // Use Semgrep default security rules
+        files: files.map((file) => ({ path: file.filename, content: file.content })),
+      },
       {
         headers: {
           Authorization: `Bearer ${SEMGREP_APP_TOKEN}`,
@@ -45,10 +53,12 @@ async function analyzeSecurity(files) {
       }
     );
 
-    return response.data; // { score: number, level: string }
+    console.log("✅ Semgrep API Response:", response.data);
+
+    return response.data; // Returns security scan results
   } catch (error) {
-    console.error("Semgrep analysis failed:", error);
-    return { score: 100, level: "monitor" }; // Default to safe
+    console.error("❌ Semgrep API Error:", error.response?.data || error.message);
+    return { score: 100, level: "monitor" }; // Default response if API fails
   }
 }
 
