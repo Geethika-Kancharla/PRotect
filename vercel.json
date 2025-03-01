@@ -1,19 +1,13 @@
 {
   "version": 2,
-  "builds": [
-    { "src": "api/**/*.js", "use": "@vercel/node" }
-  ],
   "routes": [
     {
       "src": "/api/github/webhooks",
       "dest": "/api/github/webhooks/index.js",
-      "methods": ["GET", "POST", "OPTIONS"],
+      "methods": ["POST"],
       "headers": {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "X-GitHub-Event, X-GitHub-Delivery, X-Hub-Signature, X-Hub-Signature-256, Content-Type, Content-Length",
-        "Access-Control-Expose-Headers": "X-GitHub-Event, X-GitHub-Delivery, X-Hub-Signature, X-Hub-Signature-256"
+        "Content-Type": "application/json"
       }
     }
   ]
-} 
+}

@@ -12,7 +12,7 @@
     "probot-app"
   ],
   "scripts": {
-    "start": "probot run ./index.js",
+    "start": "node api/github/webhooks/index.js",
     "test": "node --test"
   },
   "dependencies": {
