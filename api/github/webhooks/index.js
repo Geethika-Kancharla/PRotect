@@ -70,7 +70,6 @@ async function analyzeSecurity(files) {
   }
 }
 
-// Post a Comment on PR
 async function postComment(repo, owner, prNumber, comment) {
   const url = `https://api.github.com/repos/${owner}/${repo}/issues/${prNumber}/comments`;
 
@@ -83,10 +82,14 @@ async function postComment(repo, owner, prNumber, comment) {
     body: JSON.stringify({ body: comment }),
   });
 
+  const responseText = await response.text();
+  console.log("GitHub API Response:", responseText);
+
   if (!response.ok) {
-    console.error("❌ Failed to post comment:", response.statusText);
+    console.error("❌ Failed to post comment:", response.statusText, responseText);
   }
 }
+
 
 // Webhook Handler
 export default function handler(req, res) {
@@ -112,7 +115,8 @@ export default function handler(req, res) {
 
     const { action, pull_request } = req.body;
     const { number: prNumber, base } = pull_request;
-    const { repo, owner } = base;
+const { full_name } = base.repo;
+const [owner, repo] = full_name.split("/"); // ✅ Extract repo and owner properly
 
     console.log(`PR #${prNumber} ${action} in ${repo.full_name}`);
 
