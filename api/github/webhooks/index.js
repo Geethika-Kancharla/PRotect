@@ -13,9 +13,9 @@ function verifySignature(req, rawBody) {
   return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
 }
 
-module.exports = async (req, res) => {
+export default function handler(req, res) {
   if (req.method !== "POST") {
-    return res.status(405).send("Method Not Allowed");
+    return res.status(405).json({ error: "Method Not Allowed" });
   }
 
   let rawBody = "";
@@ -26,10 +26,10 @@ module.exports = async (req, res) => {
   req.on("end", () => {
     if (!verifySignature(req, rawBody)) {
       console.error("Signature verification failed!");
-      return res.status(401).send("Invalid signature");
+      return res.status(401).json({ error: "Invalid signature" });
     }
 
-    console.log(`Received GitHub event: ${req.headers["x-github-event"]}`);
-    res.status(200).send("Event received");
+    console.log(`✅ Received GitHub event: ${req.headers["x-github-event"]}`);
+    return res.status(200).json({ message: "Event received" });
   });
-};
+}

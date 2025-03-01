@@ -12,13 +12,10 @@
     "probot-app"
   ],
   "scripts": {
-    "start": "node api/github/webhooks/index.js",
     "test": "node --test"
   },
   "dependencies": {
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "probot": "^13.4.3"
+    "dotenv": "^16.4.7"
   },
   "devDependencies": {
     "nock": "^14.0.0-beta.5"
