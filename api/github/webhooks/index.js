@@ -208,8 +208,7 @@ async function analyzeSecurity(files) {
           inlineComments.push({
             path: file.filename,
             position: index + 1,
-            body: `⚠️ **Security Issue Detected**: ${message}\n\nProblematic code: \`${line.trim()}\`\n\nRecommendation: Review and fix this potential security concern.`
-          });
+            body: `⚠️ **Security Issue Detected**: ${message}\n\nProblematic code: \`${line.trim()}\`\n`          });
         }
       });
     }
