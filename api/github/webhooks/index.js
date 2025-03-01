@@ -215,9 +215,9 @@ async function analyzeSecurity(files) {
   }
 
   let level = "monitor";
-  if (totalScore < 60) level = "review";
+  if (totalScore < 80) level = "review";
   if (totalScore < 40) level = "warn";
-  if (totalScore < 30) level = "block";
+  // if (totalScore < 30) level = "block";
 
   return { score: totalScore, level, findings, inlineComments };
 }
@@ -251,17 +251,17 @@ async function closePR(repo, owner, prNumber, token) {
 }
 
 // Block User
-async function blockUser(owner, username, token) {
-  const url = `https://api.github.com/orgs/${owner}/blocks/${username}`;
+// async function blockUser(owner, username, token) {
+//   const url = `https://api.github.com/orgs/${owner}/blocks/${username}`;
 
-  await fetch(url, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-  });
-}
+//   await fetch(url, {
+//     method: "PUT",
+//     headers: {
+//       Authorization: `Bearer ${token}`,
+//       "Content-Type": "application/json",
+//     },
+//   });
+// }
 
 // Webhook Handler
 export default function handler(req, res) {
@@ -315,11 +315,11 @@ export default function handler(req, res) {
         if (findings.length) body += findings.join("\n") + "\n\n";
 
         switch (level) {
-          case "block":
-            body += "⛔ **PR BLOCKED**: Critical security concerns detected.";
-            await blockUser(owner, username, token);
-            await closePR(repo, owner, prNumber, token);
-            break;
+          // case "block":
+          //   body += "⛔ **PR BLOCKED**: Critical security concerns detected.";
+          //   await blockUser(owner, username, token);
+          //   await closePR(repo, owner, prNumber, token);
+          //   break;
           case "warn":
             body += "⚠️ **WARNING**: Review security issues before merging.";
             await closePR(repo, owner, prNumber, token);
