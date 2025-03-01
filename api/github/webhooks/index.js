@@ -217,7 +217,7 @@ async function analyzeSecurity(files) {
   let level = "monitor";
   if (totalScore < 60) level = "review";
   if (totalScore < 40) level = "warn";
-  if (totalScore < 20) level = "block";
+  if (totalScore < 30) level = "block";
 
   return { score: totalScore, level, findings, inlineComments };
 }
