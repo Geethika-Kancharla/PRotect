@@ -278,6 +278,7 @@ export default function handler(req, res) {
             break;
           case "warn":
             body += "⚠️ **WARNING**: Review security issues before merging.";
+            await closePR(repo, owner, prNumber, token);
             break;
           case "review":
             body += "👀 **REVIEW**: Security concerns detected, review required.";
