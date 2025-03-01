@@ -1,7 +1,93 @@
 const crypto = require("crypto");
 
-const SECRET = process.env.WEBHOOK_SECRET || "your-secret";
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const APP_ID = process.env.APP_ID;
+const PRIVATE_KEY = process.env.PRIVATE_KEY.replace(/\\n/g, "\n");
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+
+// Generate JWT for GitHub App Authentication
+function generateJWT() {
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64");
+  const payload = Buffer.from(
+    JSON.stringify({
+      iat: Math.floor(Date.now() / 1000) - 60,
+      exp: Math.floor(Date.now() / 1000) + 600,
+      iss: APP_ID,
+    })
+  ).toString("base64");
+
+  const signature = crypto.createSign("RSA-SHA256").update(`${header}.${payload}`).sign(PRIVATE_KEY, "base64");
+
+  return `${header}.${payload}.${signature}`;
+}
+
+// Get Installation ID for the repo owner
+async function getInstallationId(owner) {
+  const jwt = generateJWT();
+  const url = `https://api.github.com/app/installations`;
+  
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      Accept: "application/vnd.github+json",
+    },
+  });
+
+  if (!response.ok) throw new Error(`Failed to fetch installations: ${response.statusText}`);
+  
+  const installations = await response.json();
+  const installation = installations.find((inst) => inst.account.login === owner);
+  
+  if (!installation) throw new Error(`No installation found for ${owner}`);
+  return installation.id;
+}
+
+// Get Installation Token
+async function getInstallationToken(owner) {
+  const installationId = await getInstallationId(owner);
+  const jwt = generateJWT();
+  const url = `https://api.github.com/app/installations/${installationId}/access_tokens`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      Accept: "application/vnd.github+json",
+    },
+  });
+
+  if (!response.ok) throw new Error(`Failed to get installation token: ${response.statusText}`);
+  
+  const data = await response.json();
+  return data.token;
+}
+
+// Verify Webhook Signature
+function verifySignature(req, rawBody) {
+  const signature = req.headers["x-hub-signature-256"];
+  if (!signature) return false;
+
+  const hmac = crypto.createHmac("sha256", WEBHOOK_SECRET);
+  hmac.update(rawBody);
+  const expectedSignature = `sha256=${hmac.digest("hex")}`;
+
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+}
+
+// Fetch PR Files
+async function getPRFiles(repo, owner, prNumber, token) {
+  const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/files`;
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+    },
+  });
+
+  if (!response.ok) throw new Error(`Failed to fetch PR files: ${response.statusText}`);
+  
+  return await response.json();
+}
 
 const SECURITY_PATTERNS = {
   sensitiveData: {
@@ -82,38 +168,7 @@ const SECURITY_PATTERNS = {
   },
 };
 
-// shjghjghjgjhhj
-
-// Verify Webhook Signature
-function verifySignature(req, rawBody) {
-  const signature = req.headers["x-hub-signature-256"];
-  if (!signature) return false;
-
-  const hmac = crypto.createHmac("sha256", SECRET);
-  hmac.update(rawBody);
-  const expectedSignature = `sha256=${hmac.digest("hex")}`;
-
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
-}
-
-async function getPRFiles(repo, owner, prNumber) {
-  const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/files`;
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      "Accept": "application/vnd.github.v3+json"
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch PR files: ${response.statusText}`);
-  }
-
-  return await response.json();
-}
-
-// Perform Security Analysis
+// Analyze Security of PR Files
 async function analyzeSecurity(files) {
   let totalScore = 100;
   let findings = [];
@@ -138,54 +193,45 @@ async function analyzeSecurity(files) {
   return { score: totalScore, level, findings };
 }
 
-async function postComment(repo, owner, prNumber, comment) {
+// Post Comment
+async function postComment(repo, owner, prNumber, comment, token) {
   const url = `https://api.github.com/repos/${owner}/${repo}/issues/${prNumber}/comments`;
 
-  const response = await fetch(url, {
+  await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      "Content-Type": "application/json"
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify({ body: comment })
+    body: JSON.stringify({ body: comment }),
   });
-
-  if (!response.ok) {
-    console.error("❌ Failed to post comment:", response.statusText);
-  }
 }
 
-async function closePR(repo, owner, prNumber) {
+// Close PR
+async function closePR(repo, owner, prNumber, token) {
   const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`;
   
-  const response = await fetch(url, {
+  await fetch(url, {
     method: "PATCH",
     headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ state: "closed" }),
   });
-
-  if (!response.ok) {
-    console.error("❌ Failed to close PR:", response.statusText);
-  }
 }
 
-async function blockUser(owner, username) {
+// Block User
+async function blockUser(owner, username, token) {
   const url = `https://api.github.com/orgs/${owner}/blocks/${username}`;
 
-  const response = await fetch(url, {
+  await fetch(url, {
     method: "PUT",
     headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
   });
-
-  if (!response.ok) {
-    console.error("❌ Failed to block user:", response.statusText);
-  }
 }
 
 // Webhook Handler
@@ -195,10 +241,7 @@ export default function handler(req, res) {
   }
 
   let rawBody = "";
-  req.on("data", (chunk) => {
-    rawBody += chunk;
-  });
-
+  req.on("data", (chunk) => (rawBody += chunk));
   req.on("end", async () => {
     if (!verifySignature(req, rawBody)) {
       console.error("Signature verification failed!");
@@ -206,9 +249,7 @@ export default function handler(req, res) {
     }
 
     const event = req.headers["x-github-event"];
-    if (event !== "pull_request") {
-      return res.status(200).json({ message: "Non-PR event ignored" });
-    }
+    if (event !== "pull_request") return res.status(200).json({ message: "Non-PR event ignored" });
 
     const { action, pull_request } = req.body;
     const prNumber = pull_request.number;
@@ -220,22 +261,20 @@ export default function handler(req, res) {
 
     if (action === "opened" || action === "synchronize") {
       try {
-        const files = await getPRFiles(repo, owner, prNumber);
-        console.log("✅ PR Files Retrieved:", files);
-
+        const token = await getInstallationToken(owner);
+        const files = await getPRFiles(repo, owner, prNumber, token);
         const { score, level, findings } = await analyzeSecurity(files);
 
         let body = `## 🔍 Security Analysis  
 **Security Score:** ${score}/100  
 `;
-        if (findings.length) {
-          body += findings.join("\n") + "\n\n";
-        }
+        if (findings.length) body += findings.join("\n") + "\n\n";
 
         switch (level) {
           case "block":
             body += "⛔ **PR BLOCKED**: Critical security concerns detected.";
-            await blockUser(owner, username);
+            await blockUser(owner, username, token);
+            await closePR(repo, owner, prNumber, token);
             break;
           case "warn":
             body += "⚠️ **WARNING**: Review security issues before merging.";
@@ -248,12 +287,7 @@ export default function handler(req, res) {
             break;
         }
 
-        await postComment(repo, owner, prNumber, body);
-
-        if (score < 80) {
-          await closePR(repo, owner, prNumber);
-        }
-
+        await postComment(repo, owner, prNumber, body, token);
       } catch (error) {
         console.error("❌ Error processing PR:", error.message);
       }
