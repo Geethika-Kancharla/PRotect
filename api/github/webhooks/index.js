@@ -91,7 +91,6 @@ async function postComment(repo, owner, prNumber, comment) {
 }
 
 
-// Webhook Handler
 export default function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });
@@ -114,38 +113,36 @@ export default function handler(req, res) {
     }
 
     const { action, pull_request } = req.body;
-    const { number: prNumber, base } = pull_request;
-const { full_name } = base.repo;
-const [owner, repo] = full_name.split("/"); // ✅ Extract repo and owner properly
+    const prNumber = pull_request.number;
+    const repo = pull_request.base.repo.name;
+    const owner = pull_request.base.repo.owner.login;
 
-    console.log(`PR #${prNumber} ${action} in ${repo.full_name}`);
+    console.log(`PR #${prNumber} ${action} in ${owner}/${repo}`);
 
     if (action === "opened" || action === "synchronize") {
       try {
-        const files = await getPRFiles(repo.name, owner.login, prNumber);
+        const files = await getPRFiles(repo, owner, prNumber);
+        console.log("✅ PR Files Retrieved:", files);
+
         const { score, level } = await analyzeSecurity(files);
 
         let body = "";
         switch (level) {
           case "block":
-            body += "⛔ **PR BLOCKED**: This PR has been automatically blocked due to critical security concerns.\n";
-            body += "Please review and address the security issues before proceeding.\n";
+            body += "⛔ **PR BLOCKED**: Critical security concerns detected. Please fix them.";
             break;
           case "warn":
-            body += "⚠️ **WARNING**: This PR requires security review before merging.\n";
-            body += "Please carefully review the identified security issues.\n";
+            body += "⚠️ **WARNING**: Review security issues before merging.";
             break;
           case "review":
-            body += "👀 **REVIEW**: Some potential security concerns were identified.\n";
-            body += "Please review the issues during code review.\n";
+            body += "👀 **REVIEW**: Security concerns detected, review required.";
             break;
           default:
-            body += "ℹ️ **MONITOR**: Minor security concerns detected.\n";
-            body += "Standard code review process can proceed.\n";
+            body += "ℹ️ **MONITOR**: No major issues detected.";
             break;
         }
 
-        await postComment(repo.name, owner.login, prNumber, body);
+        await postComment(repo, owner, prNumber, body);
       } catch (error) {
         console.error("❌ Error processing PR:", error.message);
       }
