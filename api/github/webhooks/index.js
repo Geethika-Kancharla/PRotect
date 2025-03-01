@@ -168,20 +168,50 @@ const SECURITY_PATTERNS = {
   },
 };
 
+// Create Review Comment
+async function createReviewComment(repo, owner, prNumber, token, commit_id, path, position, body) {
+  const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments`;
+
+  await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      body,
+      commit_id,
+      path,
+      position
+    }),
+  });
+}
+
 // Analyze Security of PR Files
 async function analyzeSecurity(files) {
   let totalScore = 100;
   let findings = [];
+  let inlineComments = [];
 
   for (const file of files) {
     const response = await fetch(file.raw_url);
     const content = await response.text();
+    const lines = content.split('\n');
 
     for (const [key, { pattern, score, message }] of Object.entries(SECURITY_PATTERNS)) {
-      if (pattern.test(content)) {
-        totalScore += score;
-        findings.push(`🔍 **${file.filename}** - ${message}`);
-      }
+      lines.forEach((line, index) => {
+        if (pattern.test(line)) {
+          totalScore += score;
+          findings.push(`🔍 **${file.filename}** - ${message}`);
+          
+          // Add inline comment data
+          inlineComments.push({
+            path: file.filename,
+            position: index + 1,
+            body: `⚠️ **Security Issue Detected**: ${message}\n\nProblematic code: \`${line.trim()}\`\n\nRecommendation: Review and fix this potential security concern.`
+          });
+        }
+      });
     }
   }
 
@@ -190,7 +220,7 @@ async function analyzeSecurity(files) {
   if (totalScore < 40) level = "warn";
   if (totalScore < 20) level = "block";
 
-  return { score: totalScore, level, findings };
+  return { score: totalScore, level, findings, inlineComments };
 }
 
 // Post Comment
@@ -256,6 +286,7 @@ export default function handler(req, res) {
     const repo = pull_request.base.repo.name;
     const owner = pull_request.base.repo.owner.login;
     const username = pull_request.user.login;
+    const commit_id = pull_request.head.sha;
 
     console.log(`PR #${prNumber} ${action} in ${owner}/${repo}`);
 
@@ -263,7 +294,21 @@ export default function handler(req, res) {
       try {
         const token = await getInstallationToken(owner);
         const files = await getPRFiles(repo, owner, prNumber, token);
-        const { score, level, findings } = await analyzeSecurity(files);
+        const { score, level, findings, inlineComments } = await analyzeSecurity(files);
+
+        // Post inline comments
+        for (const comment of inlineComments) {
+          await createReviewComment(
+            repo,
+            owner,
+            prNumber,
+            token,
+            commit_id,
+            comment.path,
+            comment.position,
+            comment.body
+          );
+        }
 
         let body = `## 🔍 Security Analysis  
 **Security Score:** ${score}/100  
