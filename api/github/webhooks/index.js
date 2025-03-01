@@ -1,10 +1,88 @@
 const crypto = require("crypto");
 
 const SECRET = process.env.WEBHOOK_SECRET || "your-secret";
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN; 
-const SEMGREP_APP_TOKEN = process.env.SEMGREP_APP_TOKEN; 
-const SEMGREP_API_URL = "https://semgrep.dev/api/v1/scan"; 
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
+const SECURITY_PATTERNS = {
+  sensitiveData: {
+    pattern:
+      /(password|secret|token|key|api[_-]?key|credentials?|auth_token)[\s]*[=:]\s*['"`][^'"`]*['"`]/i,
+    score: -20,
+    message: "Possible sensitive data exposure",
+  },
+  sqlInjection: {
+    pattern:
+      /(\$\{.*\}.*(?:SELECT|INSERT|UPDATE|DELETE)|(?:SELECT|INSERT|UPDATE|DELETE).*\+\s*['"]\s*\+)/i,
+    score: -15,
+    message: "Potential SQL injection vulnerability",
+  },
+  commandInjection: {
+    pattern:
+      /(eval\s*\(|exec\s*\(|execSync|spawn\s*\(|fork\s*\(|child_process|shelljs|\.exec\(.*\$\{)/i,
+    score: -25,
+    message: "Potential command injection risk",
+  },
+  insecureConfig: {
+    pattern:
+      /(allowAll|disableSecurity|noValidation|validateRequest:\s*false|security:\s*false)/i,
+    score: -10,
+    message: "Potentially insecure configuration",
+  },
+  xssVulnerability: {
+    pattern:
+      /(innerHTML|outerHTML|document\.write|eval\(.*\$\{|dangerouslySetInnerHTML)/i,
+    score: -15,
+    message: "Potential XSS vulnerability",
+  },
+  unsafeDeserialize: {
+    pattern:
+      /(JSON\.parse\(.*\$\{|eval\(.*JSON|deserialize\(.*user|fromJSON\(.*input)/i,
+    score: -20,
+    message: "Unsafe deserialization of data",
+  },
+  maliciousPackages: {
+    pattern:
+      /"dependencies":\s*{[^}]*"(evil-|malicious-|hack-|unsafe-|vulnerable-)/i,
+    score: -30,
+    message: "Potentially malicious package dependency",
+  },
+  cryptoMining: {
+    pattern: /(crypto\.?miner|mineCrypto|coinHive|webMining|monero\.?miner)/i,
+    score: -50,
+    message: "Potential cryptocurrency mining code",
+  },
+  dataExfiltration: {
+    pattern:
+      /(\.upload\(.*\$\{|fetch\(['"`]https?:\/\/[^\/]+\.[^\/]+\/[^\/]+\?.*\$\{)/i,
+    score: -40,
+    message: "Potential data exfiltration attempt",
+  },
+  obfuscatedCode: {
+    pattern:
+      /(eval\(atob|eval\(decode|String\.fromCharCode.*\)\.call\(|\\x[0-9a-f]{2}|\\u[0-9a-f]{4}){10,}/i,
+    score: -35,
+    message: "Heavily obfuscated code detected",
+  },
+  suspiciousUrls: {
+    pattern:
+      /https?:\/\/(?:[^\/]+\.)?(?:xyz|tk|ml|ga|cf|gq|pw|top|club)\/[^\s"']+/i,
+    score: -15,
+    message: "Suspicious URL domain detected",
+  },
+  hardcodedIPs: {
+    pattern:
+      /(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/,
+    score: -5,
+    message: "Hardcoded IP address detected",
+  },
+  debugCode: {
+    pattern: /(console\.log\(|debugger|alert\()/i,
+    score: -5,
+    message: "Debug code found in production",
+  },
+};
+
+// Verify Webhook Signature
 function verifySignature(req, rawBody) {
   const signature = req.headers["x-hub-signature-256"];
   if (!signature) return false;
@@ -35,41 +113,32 @@ async function getPRFiles(repo, owner, prNumber) {
   }));
 }
 
-// Analyze Security with Semgrep
+// Perform Security Analysis
 async function analyzeSecurity(files) {
-  try {
-    if (!SEMGREP_APP_TOKEN) {
-      throw new Error("Missing SEMGREP_APP_TOKEN in environment variables.");
+  let totalScore = 100;
+  let findings = [];
+
+  for (const file of files) {
+    const response = await fetch(file.raw_url);
+    const content = await response.text();
+
+    for (const [key, { pattern, score, message }] of Object.entries(SECURITY_PATTERNS)) {
+      if (pattern.test(content)) {
+        totalScore += score;
+        findings.push(`🔍 **${file.filename}** - ${message}`);
+      }
     }
-
-    console.log("🔍 Sending files to Semgrep for security analysis...");
-
-    const response = await fetch(SEMGREP_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${SEMGREP_APP_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ruleset: "p/default", // Use Semgrep default security rules
-        files: files.map((file) => ({ path: file.filename, content: file.content })),
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Semgrep API error: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    console.log("✅ Semgrep API Response:", result);
-
-    return result; // Returns security scan results
-  } catch (error) {
-    console.error("❌ Semgrep API Error:", error.message);
-    return { score: 100, level: "monitor" }; // Default response if API fails
   }
+
+  let level = "monitor";
+  if (totalScore < 60) level = "review";
+  if (totalScore < 40) level = "warn";
+  if (totalScore < 20) level = "block";
+
+  return { score: totalScore, level, findings };
 }
 
+// Post Comment on PR
 async function postComment(repo, owner, prNumber, comment) {
   const url = `https://api.github.com/repos/${owner}/${repo}/issues/${prNumber}/comments`;
 
@@ -82,15 +151,12 @@ async function postComment(repo, owner, prNumber, comment) {
     body: JSON.stringify({ body: comment }),
   });
 
-  const responseText = await response.text();
-  console.log("GitHub API Response:", responseText);
-
   if (!response.ok) {
-    console.error("❌ Failed to post comment:", response.statusText, responseText);
+    console.error("❌ Failed to post comment:", response.statusText);
   }
 }
 
-
+// Webhook Handler
 export default function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });
@@ -124,12 +190,18 @@ export default function handler(req, res) {
         const files = await getPRFiles(repo, owner, prNumber);
         console.log("✅ PR Files Retrieved:", files);
 
-        const { score, level } = await analyzeSecurity(files);
+        const { score, level, findings } = await analyzeSecurity(files);
 
-        let body = "";
+        let body = `## 🔍 Security Analysis  
+**Security Score:** ${score}/100  
+`;
+        if (findings.length) {
+          body += findings.join("\n") + "\n\n";
+        }
+
         switch (level) {
           case "block":
-            body += "⛔ **PR BLOCKED**: Critical security concerns detected. Please fix them.";
+            body += "⛔ **PR BLOCKED**: Critical security concerns detected.";
             break;
           case "warn":
             body += "⚠️ **WARNING**: Review security issues before merging.";
