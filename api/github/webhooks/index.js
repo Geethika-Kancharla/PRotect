@@ -4,7 +4,7 @@ const APP_ID = process.env.APP_ID;
 const PRIVATE_KEY = process.env.PRIVATE_KEY.replace(/\\n/g, "\n");
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
-// Generate JWT for GitHub App Authentication
+
 function generateJWT() {
   const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64");
   const payload = Buffer.from(
@@ -20,7 +20,7 @@ function generateJWT() {
   return `${header}.${payload}.${signature}`;
 }
 
-// Get Installation ID for the repo owner
+
 async function getInstallationId(owner) {
   const jwt = generateJWT();
   const url = `https://api.github.com/app/installations`;
@@ -41,7 +41,7 @@ async function getInstallationId(owner) {
   return installation.id;
 }
 
-// Get Installation Token
+
 async function getInstallationToken(owner) {
   const installationId = await getInstallationId(owner);
   const jwt = generateJWT();
@@ -61,7 +61,7 @@ async function getInstallationToken(owner) {
   return data.token;
 }
 
-// Verify Webhook Signature
+
 function verifySignature(req, rawBody) {
   const signature = req.headers["x-hub-signature-256"];
   if (!signature) return false;
@@ -73,7 +73,6 @@ function verifySignature(req, rawBody) {
   return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
 }
 
-// Fetch PR Files
 async function getPRFiles(repo, owner, prNumber, token) {
   const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/files`;
 
@@ -168,7 +167,7 @@ const SECURITY_PATTERNS = {
   },
 };
 
-// Create Review Comment
+
 async function createReviewComment(repo, owner, prNumber, token, commit_id, path, position, body) {
   const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments`;
 
@@ -187,7 +186,7 @@ async function createReviewComment(repo, owner, prNumber, token, commit_id, path
   });
 }
 
-// Analyze Security of PR Files
+
 async function analyzeSecurity(files) {
   let totalScore = 100;
   let findings = [];
@@ -204,7 +203,7 @@ async function analyzeSecurity(files) {
           totalScore += score;
           findings.push(`🔍 **${file.filename}** - ${message}`);
           
-          // Add inline comment data
+          
           inlineComments.push({
             path: file.filename,
             position: index + 1,
@@ -222,7 +221,6 @@ async function analyzeSecurity(files) {
   return { score: totalScore, level, findings, inlineComments };
 }
 
-// Post Comment
 async function postComment(repo, owner, prNumber, comment, token) {
   const url = `https://api.github.com/repos/${owner}/${repo}/issues/${prNumber}/comments`;
 
@@ -236,7 +234,6 @@ async function postComment(repo, owner, prNumber, comment, token) {
   });
 }
 
-// Close PR
 async function closePR(repo, owner, prNumber, token) {
   const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`;
   
@@ -263,7 +260,6 @@ async function closePR(repo, owner, prNumber, token) {
 //   });
 // }
 
-// Webhook Handler
 export default function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });
@@ -295,7 +291,6 @@ export default function handler(req, res) {
         const files = await getPRFiles(repo, owner, prNumber, token);
         const { score, level, findings, inlineComments } = await analyzeSecurity(files);
 
-        // Post inline comments
         for (const comment of inlineComments) {
           await createReviewComment(
             repo,
@@ -310,6 +305,7 @@ export default function handler(req, res) {
         }
 
         let body = `## 🔍 Security Analysis  
+        **Security Score:** ${score}/100
 `;
         if (findings.length) body += findings.join("\n") + "\n\n";
 
