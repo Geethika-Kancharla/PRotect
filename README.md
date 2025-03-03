@@ -2,7 +2,7 @@
 
 ## 🔒 Secure Your Repository from Malicious PRs
 
-**PR Security Bot** is a GitHub App built that **automatically scans pull requests**, identifies malicious code, and prevents security threats before they get merged. The bot provides **inline PR comments**, assigns a **security score**, and **auto-closes PRs** that fall below a threshold, ensuring your repository remains safe from supply chain attacks.
+**PR Security Bot** is a GitHub App(bot) that **automatically scans pull requests**, identifies malicious code, and prevents security threats before they get merged. The bot provides **inline PR comments**, assigns a **security score**, and **auto-closes PRs** that fall below a threshold, ensuring your repository remains safe from supply chain attacks.
 
 ![Security Scan](/public/Install.jpg)
 
