@@ -88,84 +88,6 @@ async function getPRFiles(repo, owner, prNumber, token) {
   return await response.json();
 }
 
-const SECURITY_PATTERNS = {
-  sensitiveData: {
-    pattern:
-      /(password|secret|token|key|api[_-]?key|credentials?|auth_token)[\s]*[=:]\s*['"`][^'"`]*['"`]/i,
-    score: -20,
-    message: "Possible sensitive data exposure",
-  },
-  sqlInjection: {
-    pattern:
-      /(\$\{.*\}.*(?:SELECT|INSERT|UPDATE|DELETE)|(?:SELECT|INSERT|UPDATE|DELETE).*\+\s*['"]\s*\+)/i,
-    score: -15,
-    message: "Potential SQL injection vulnerability",
-  },
-  commandInjection: {
-    pattern:
-      /(eval\s*\(|exec\s*\(|execSync|spawn\s*\(|fork\s*\(|child_process|shelljs|\.exec\(.*\$\{)/i,
-    score: -25,
-    message: "Potential command injection risk",
-  },
-  insecureConfig: {
-    pattern:
-      /(allowAll|disableSecurity|noValidation|validateRequest:\s*false|security:\s*false)/i,
-    score: -10,
-    message: "Potentially insecure configuration",
-  },
-  xssVulnerability: {
-    pattern:
-      /(innerHTML|outerHTML|document\.write|eval\(.*\$\{|dangerouslySetInnerHTML)/i,
-    score: -15,
-    message: "Potential XSS vulnerability",
-  },
-  unsafeDeserialize: {
-    pattern:
-      /(JSON\.parse\(.*\$\{|eval\(.*JSON|deserialize\(.*user|fromJSON\(.*input)/i,
-    score: -20,
-    message: "Unsafe deserialization of data",
-  },
-  maliciousPackages: {
-    pattern:
-      /"dependencies":\s*{[^}]*"(evil-|malicious-|hack-|unsafe-|vulnerable-)/i,
-    score: -30,
-    message: "Potentially malicious package dependency",
-  },
-  cryptoMining: {
-    pattern: /(crypto\.?miner|mineCrypto|coinHive|webMining|monero\.?miner)/i,
-    score: -50,
-    message: "Potential cryptocurrency mining code",
-  },
-  dataExfiltration: {
-    pattern:
-      /(\.upload\(.*\$\{|fetch\(['"`]https?:\/\/[^\/]+\.[^\/]+\/[^\/]+\?.*\$\{)/i,
-    score: -40,
-    message: "Potential data exfiltration attempt",
-  },
-  obfuscatedCode: {
-    pattern:
-      /(eval\(atob|eval\(decode|String\.fromCharCode.*\)\.call\(|\\x[0-9a-f]{2}|\\u[0-9a-f]{4}){10,}/i,
-    score: -35,
-    message: "Heavily obfuscated code detected",
-  },
-  suspiciousUrls: {
-    pattern:
-      /https?:\/\/(?:[^\/]+\.)?(?:xyz|tk|ml|ga|cf|gq|pw|top|club)\/[^\s"']+/i,
-    score: -15,
-    message: "Suspicious URL domain detected",
-  },
-  hardcodedIPs: {
-    pattern:
-      /(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/,
-    score: -5,
-    message: "Hardcoded IP address detected",
-  },
-  debugCode: {
-    pattern: /(console\.log\(|debugger|alert\()/i,
-    score: -5,
-    message: "Debug code found in production",
-  },
-};
 
 
 async function createReviewComment(repo, owner, prNumber, token, commit_id, path, position, body) {
@@ -192,33 +114,55 @@ async function analyzeSecurity(files) {
   let findings = [];
   let inlineComments = [];
 
-  for (const file of files) {
-    const response = await fetch(file.raw_url);
-    const content = await response.text();
-    const lines = content.split('\n');
+  try {
+    const response = await fetch('http://localhost:5000/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        files: files.map(file => ({
+          filename: file.filename,
+          content: file.patch || file.content
+        }))
+      })
+    });
 
-    for (const [key, { pattern, score, message }] of Object.entries(SECURITY_PATTERNS)) {
-      lines.forEach((line, index) => {
-        if (pattern.test(line)) {
-          totalScore += score;
-          findings.push(`🔍 **${file.filename}** - ${message}`);
-          
-          
-          inlineComments.push({
-            path: file.filename,
-            position: index + 1,
-            body: `⚠️ **Security Issue Detected**: ${message}\n\nProblematic code: \`${line.trim()}\`\n`          });
-        }
-      });
+    if (!response.ok) {
+      throw new Error(`Failed to analyze security: ${response.statusText}`);
     }
+
+    const analysis = await response.json();
+    return analysis;
+  } catch (error) {
+    console.error('Error in security analysis:', error);
+    for (const file of files) {
+      const response = await fetch(file.raw_url);
+      const content = await response.text();
+      const lines = content.split('\n');
+
+      for (const [key, { pattern, score, message }] of Object.entries(SECURITY_PATTERNS)) {
+        lines.forEach((line, index) => {
+          if (pattern.test(line)) {
+            totalScore += score;
+            findings.push(`🔍 **${file.filename}** - ${message}`);
+            
+            inlineComments.push({
+              path: file.filename,
+              position: index + 1,
+              body: `⚠️ **Security Issue Detected**: ${message}\n\nProblematic code: \`${line.trim()}\`\n`
+            });
+          }
+        });
+      }
+    }
+
+    let level = "monitor";
+    if (totalScore < 80) level = "review";
+    if (totalScore < 40) level = "warn";
+
+    return { score: totalScore, level, findings, inlineComments };
   }
-
-  let level = "monitor";
-  if (totalScore < 80) level = "review";
-  if (totalScore < 40) level = "warn";
-  // if (totalScore < 30) level = "block";
-
-  return { score: totalScore, level, findings, inlineComments };
 }
 
 async function postComment(repo, owner, prNumber, comment, token) {
