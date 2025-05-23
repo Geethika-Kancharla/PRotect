@@ -115,7 +115,7 @@ async function analyzeSecurity(files) {
   let inlineComments = [];
 
   try {
-    const response = await fetch('http://localhost:5000/analyze', {
+    const response = await fetch('https://protect-62rx.onrender.com/analyze', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
