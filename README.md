@@ -61,17 +61,7 @@
 
 - Probot – Framework for building GitHub Apps
 - Node.js – JavaScript runtime
-- AI/ML-based threat detection
-
----
-
-## 📌 Get Started
-
-```bash
-git clone https://github.com/Geethika-Kancharla/PRotect.git
-cd your-repo
-npm install
-npm start
-```
+- Flask – Python web server handling AI integration
+- Gemini LLM, LangChain, FAISS – AI and vector search technologies
 
 ---
