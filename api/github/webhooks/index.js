@@ -88,8 +88,6 @@ async function getPRFiles(repo, owner, prNumber, token) {
   return await response.json();
 }
 
-
-
 async function createReviewComment(repo, owner, prNumber, token, commit_id, path, position, body) {
   const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments`;
 
@@ -108,7 +106,6 @@ async function createReviewComment(repo, owner, prNumber, token, commit_id, path
   });
 }
 
-
 async function analyzeSecurity(files) {
   let totalScore = 100;
   let findings = [];
@@ -123,9 +120,9 @@ async function analyzeSecurity(files) {
       body: JSON.stringify({
         files: files.map(file => ({
           filename: file.filename,
-          content: file.patch || file.content
-        }))
-      })
+          content: file.patch || file.content,
+        })),
+      }),
     });
 
     if (!response.ok) {
@@ -133,9 +130,15 @@ async function analyzeSecurity(files) {
     }
 
     const analysis = await response.json();
-    return analysis;
+    return {
+      score: analysis.score || totalScore,
+      level: analysis.level || "monitor",
+      findings: analysis.findings || [],
+      inlineComments: analysis.inlineComments || [],
+    };
   } catch (error) {
     console.error('Error in security analysis:', error);
+
     for (const file of files) {
       const response = await fetch(file.raw_url);
       const content = await response.text();
@@ -146,11 +149,10 @@ async function analyzeSecurity(files) {
           if (pattern.test(line)) {
             totalScore += score;
             findings.push(`🔍 **${file.filename}** - ${message}`);
-            
             inlineComments.push({
               path: file.filename,
               position: index + 1,
-              body: `⚠️ **Security Issue Detected**: ${message}\n\nProblematic code: \`${line.trim()}\`\n`
+              body: `⚠️ **Security Issue Detected**: ${message}\n\nProblematic code: \`${line.trim()}\`\n`,
             });
           }
         });
@@ -164,6 +166,7 @@ async function analyzeSecurity(files) {
     return { score: totalScore, level, findings, inlineComments };
   }
 }
+
 
 async function postComment(repo, owner, prNumber, comment, token) {
   const url = `https://api.github.com/repos/${owner}/${repo}/issues/${prNumber}/comments`;
@@ -190,19 +193,6 @@ async function closePR(repo, owner, prNumber, token) {
     body: JSON.stringify({ state: "closed" }),
   });
 }
-
-// Block User
-// async function blockUser(owner, username, token) {
-//   const url = `https://api.github.com/orgs/${owner}/blocks/${username}`;
-
-//   await fetch(url, {
-//     method: "PUT",
-//     headers: {
-//       Authorization: `Bearer ${token}`,
-//       "Content-Type": "application/json",
-//     },
-//   });
-// }
 
 export default function handler(req, res) {
   if (req.method !== "POST") {
@@ -254,11 +244,6 @@ export default function handler(req, res) {
         if (findings.length) body += findings.join("\n") + "\n\n";
 
         switch (level) {
-          // case "block":
-          //   body += "⛔ **PR BLOCKED**: Critical security concerns detected.";
-          //   await blockUser(owner, username, token);
-          //   await closePR(repo, owner, prNumber, token);
-          //   break;
           case "warn":
             body += "⚠️ **WARNING**: Review security issues before merging.";
             await closePR(repo, owner, prNumber, token);
