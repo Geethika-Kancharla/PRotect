@@ -8,6 +8,7 @@
 
 ---
 
+
 ## ✨ Features
 
 ✅ **AI-Powered Threat Detection** – Scans PRs for potential vulnerabilities and malicious code.
@@ -19,21 +20,29 @@
 ✅ **Inline PR Comments** – Highlights security risks directly in the code for easy review.
 
 ✅ **Comprehensive Security Checks:**
-   - 🔐 **Sensitive Data Exposure** – Detects hardcoded credentials, API keys, and other sensitive data.
-   - 💉 **SQL Injection** – Flags potential SQL injection vulnerabilities.
-   - 🛠 **Command Injection** – Identifies risks related to command execution attacks.
-   - ⚙️ **Insecure Configurations** – Detects weak security configurations in the code.
-   - 🛡 **XSS Vulnerabilities** – Scans for cross-site scripting attacks.
-   - 🏴 **Unsafe Deserialization** – Prevents object deserialization attacks.
-   - 📦 **Malicious Packages** – Identifies unsafe dependencies in package files.
-   - ⛏ **Crypto Mining Scripts** – Detects unauthorized crypto mining operations.
-   - 📤 **Data Exfiltration** – Alerts on suspicious data exfiltration attempts.
-   - 🔍 **Obfuscated Code** – Highlights hidden or suspiciously encoded code.
-   - 🌐 **Suspicious URLs** – Warns about links leading to phishing or malicious sites.
-   - 🌍 **Hardcoded IPs** – Flags static IP addresses that may pose security risks.
-   - 🐞 **Debug Code** – Detects leftover debugging or testing code that could be exploited.
+   -  **Sensitive Data Exposure** – Detects hardcoded credentials, API keys, and other sensitive data.
+   -  **SQL Injection** – Flags potential SQL injection vulnerabilities.
+   -  **Command Injection** – Identifies risks related to command execution attacks.
+   -  **Insecure Configurations** – Detects weak security configurations in the code.
+   -  **XSS Vulnerabilities** – Scans for cross-site scripting attacks.
+   -  **Unsafe Deserialization** – Prevents object deserialization attacks.
+   -  **Malicious Packages** – Identifies unsafe dependencies in package files.
+   -  **Crypto Mining Scripts** – Detects unauthorized crypto mining operations.
+   -  **Data Exfiltration** – Alerts on suspicious data exfiltration attempts.
+   -  **Obfuscated Code** – Highlights hidden or suspiciously encoded code.
+   -  **Suspicious URLs** – Warns about links leading to phishing or malicious sites.
+   -  **Hardcoded IPs** – Flags static IP addresses that may pose security risks.
+   -  **Debug Code** – Detects leftover debugging or testing code that could be exploited.
 
 ![Feature Overview](/public/Detail.jpg)
+
+---
+
+## View
+
+This demonstrates how the bot integrates seamlessly with GitHub workflow to detect and prevent security issues before merging.
+
+🔗 [Click Here](https://github.com/Geethika-Kancharla/Test/pull/20)
 
 ---
 
